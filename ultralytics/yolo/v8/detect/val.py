@@ -14,6 +14,7 @@ from ultralytics.yolo.utils.checks import check_requirements
 from ultralytics.yolo.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
 from ultralytics.yolo.utils.plotting import output_to_target, plot_images
 from ultralytics.yolo.utils.torch_utils import de_parallel
+from ultralytics.yolo.data import CopyPasteDataset
 
 
 class DetectionValidator(BaseValidator):
@@ -206,6 +207,8 @@ class DetectionValidator(BaseValidator):
                                      seed=self.args.seed)[0]
 
         dataset = self.build_dataset(dataset_path, batch=batch_size, mode='val')
+        if 'CopyPaste' in self.data.get('type', ''):
+            dataset = CopyPasteDataset(dataset, self.data['supplementary_dataset'])
         dataloader = build_dataloader(dataset, batch_size, self.args.workers, shuffle=False, rank=-1)
         return dataloader
 

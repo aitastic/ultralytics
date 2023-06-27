@@ -11,6 +11,7 @@ from ultralytics.yolo.engine.trainer import BaseTrainer
 from ultralytics.yolo.utils import DEFAULT_CFG, LOGGER, RANK, colorstr
 from ultralytics.yolo.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.yolo.utils.torch_utils import de_parallel, torch_distributed_zero_first
+from ultralytics.yolo.data import CopyPasteDataset
 
 
 # BaseTrainer python usage
@@ -50,8 +51,13 @@ class DetectionTrainer(BaseTrainer):
                                      shuffle=mode == 'train',
                                      seed=self.args.seed)[0]
         assert mode in ['train', 'val']
-        with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
-            dataset = self.build_dataset(dataset_path, mode, batch_size)
+        if 'CopyPaste' in self.data.get('type', ''):
+            with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
+                base_dataset = self.build_dataset(dataset_path, mode, batch_size)
+                dataset = CopyPasteDataset(base_dataset, self.data['supplementary_dataset'])
+        else:
+            with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
+                dataset = self.build_dataset(dataset_path, mode, batch_size)
         shuffle = mode == 'train'
         if getattr(dataset, 'rect', False) and shuffle:
             LOGGER.warning("WARNING ⚠️ 'rect=True' is incompatible with DataLoader shuffle, setting shuffle=False")
