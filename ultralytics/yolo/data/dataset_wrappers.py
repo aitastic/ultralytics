@@ -1,7 +1,5 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
-import math
 import random
-import os
 
 import collections
 from copy import deepcopy
@@ -11,10 +9,7 @@ from glob import glob
 import cv2
 import numpy as np
 import torch
-import matplotlib
-import matplotlib.pyplot as plt
 
-from pycocotools import mask
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
@@ -123,7 +118,6 @@ class CopyPasteDataset:
                 y = int(center_y - height / 2)
 
                 # Draw the bounding box
-                print(f"{img.shape=}")
                 cv2.rectangle(img, (x, y), (x + int(width), y + int(height)), (0, 255, 0), 2)
 
                 # Draw the class label
