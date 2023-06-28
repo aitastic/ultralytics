@@ -119,8 +119,8 @@ class YOLODataset(BaseDataset):
             tqdm(None, desc=self.prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
             if cache['msgs']:
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
-        if nf == 0:  # number of labels found
-            raise FileNotFoundError(f'{self.prefix}No labels found in {cache_path}, can not start training. {HELP_URL}')
+        # if nf == 0:  # number of labels found
+            # raise FileNotFoundError(f'{self.prefix}No labels found in {cache_path}, can not start training. {HELP_URL}')
 
         # Read cache
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
@@ -137,8 +137,8 @@ class YOLODataset(BaseDataset):
                 'To avoid this please supply either a detect or segment dataset, not a detect-segment mixed dataset.')
             for lb in labels:
                 lb['segments'] = []
-        if len_cls == 0:
-            raise ValueError(f'All labels empty in {cache_path}, can not start training without labels. {HELP_URL}')
+        # if len_cls == 0:
+            # raise ValueError(f'All labels empty in {cache_path}, can not start training without labels. {HELP_URL}')
         return labels
 
     # TODO: use hyp config to set all these augmentations
