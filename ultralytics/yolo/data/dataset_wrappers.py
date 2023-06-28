@@ -99,8 +99,31 @@ class CopyPasteDataset:
         """Returns the number of items in the dataset."""
         return len(self.dataset)
 
-    def _vis(self, img):
-        if False:
+    def _vis(self, labels, debug_view=False):
+        if debug_view:
+            # Load image, transpose to cv2 format, reorder color channels and normalize
+            img = labels['img'].permute(1,2,0).numpy()
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            for bbox, class_id in zip(labels['bboxes'], labels['cls']):
+                center_x, center_y, width, height = bbox
+
+                # Convert YOLO bounding box coordinates to OpenCV format
+                center_x *= img.shape[1]
+                center_y *= img.shape[0]
+                width *= img.shape[1]
+                height *= img.shape[0]
+                x = int(center_x - width / 2)
+                y = int(center_y - height / 2)
+
+                # Draw the bounding box
+                print(f"{img.shape=}")
+                cv2.rectangle(img, (x, y), (x + int(width), y + int(height)), (0, 255, 0), 2)
+
+                # Draw the class label
+                cv2.putText(img, str(class_id[0]), (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36,255,12), 2)
+
+            # Show image
             cv2.imshow('debug', img)
             cv2.waitKey()
 
