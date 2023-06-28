@@ -273,11 +273,10 @@ class CopyPasteDataset:
             'cls': cls,
             'bboxes': bboxes,
             'batch_idx': batch_idx,
-            'im_file': im_files[0],
-            'ori_shapes': ori_shapes,
-            'resized_shapes': resized_shapes,
+            'im_file': im_files,
+            'ori_shape': ori_shapes,
+            'resized_shape': resized_shapes,
         }
-        # Return the batched data
         return result
 
 
