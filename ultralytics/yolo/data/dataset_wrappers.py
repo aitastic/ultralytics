@@ -161,35 +161,36 @@ class CopyPasteDataset:
         binary_mask= binary_mask[y:y+h, x:x+w]
         
         # Select a random position in the second image
-        x2 = np.random.randint(-w + 1, base_img.shape[1])
-        y2 = np.random.randint(-h + 1, base_img.shape[0])
+        # TODO figure out a way to do this closer to the edge
+        x2 = max(0, np.random.randint(-w + 1, base_img.shape[1]))
+        y2 = max(0, np.random.randint(-h + 1, base_img.shape[0]))
         
         # Calculate the width and height of the part of the object that fits within the second image
-        w2 = min(w, base_img.shape[1] - max(0, x2))
-        h2 = min(h, base_img.shape[0] - max(0, y2))
+        w2 = min(w, base_img.shape[1] - x2)
+        h2 = min(h, base_img.shape[0] - y2)
         
         # Adjust the object and its mask to fit within the second image
         obj = obj[:h2, :w2]
         binary_mask = binary_mask[:h2, :w2]
 
         # Paste the object onto the second image using the mask
-        base_img[max(0, y2):max(0, y2)+h2, max(0, x2):max(0, x2)+w2] = cv2.bitwise_and(
-            base_img[max(0, y2):max(0, y2)+h2, max(0, x2):max(0, x2)+w2],
-            base_img[max(0, y2):max(0, y2)+h2, max(0, x2):max(0, x2)+w2],
+        base_img[y2:y2+h2, x2:x2+w2] = cv2.bitwise_and(
+            base_img[y2:y2+h2, x2:x2+w2],
+            base_img[y2:y2+h2, x2:x2+w2],
             mask=cv2.bitwise_not(binary_mask)
         )
-        base_img[max(0, y2):max(0, y2)+h2, max(0, x2):max(0, x2)+w2] = cv2.bitwise_or(
-            base_img[max(0, y2):max(0, y2)+h2, max(0, x2):max(0, x2)+w2],
+        base_img[y2:y2+h2, x2:x2+w2] = cv2.bitwise_or(
+            base_img[y2:y2+h2, x2:x2+w2],
             obj
         )
 
 
         # Calculate YOLO annotations
         obj_class_id = int(suppl_obj_id) - 77        # Just for now to align with expected values
-        obj_bbox_center_x = (x2+w2/2) / w
-        obj_bbox_center_y = y2+h2/2 / h
-        obj_bbox_w = w2 / w 
-        obj_bbox_h = h2 / h
+        obj_bbox_center_x = (x2+w2/2) / base_img.shape[1]
+        obj_bbox_center_y = (y2+h2/2) / base_img.shape[0]
+        obj_bbox_w = w2 / base_img.shape[1] 
+        obj_bbox_h = h2 / base_img.shape[0]
 
         # Append to labels
         labels['cls'] = torch.tensor([[obj_class_id]])
@@ -234,6 +235,9 @@ class CopyPasteDataset:
 
 
     def _select_object(self, dataset):
+        """
+        select random object from our supplementary dataset
+        """
         obj = random.sample(sorted(dataset), k=1)[0]
         obj_id = self.suppl_dataset[obj]['class_id']
         img = random.sample(sorted(dataset[obj]['paths']), k=1)[0]
