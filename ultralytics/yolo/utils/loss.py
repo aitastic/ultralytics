@@ -168,7 +168,9 @@ class v8DetectionLoss:
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
 
         # targets
-        if batch['cls'].view(-1, 1).shape[0] != batch['bboxes'].shape[0]:
+        # if batch['cls'].view(-1, 1).shape[0] != batch['bboxes'].shape[0]:
+        # FIXME this should probably be solved some other way
+        if True:
             # Flatten the 'bboxes' tensor to a 2D tensor
             bboxes = batch['bboxes'].view(-1, batch['bboxes'].size(-1))
 
@@ -176,6 +178,7 @@ class v8DetectionLoss:
             targets = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), bboxes), 1)
 
         else:
+            print(f"{((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1)=}")
             targets = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1)
         targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
         gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
