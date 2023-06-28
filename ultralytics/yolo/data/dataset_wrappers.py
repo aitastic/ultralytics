@@ -81,16 +81,20 @@ class CopyPasteDataset:
         return objects
 
 
-    def __init__(self, base_dataset, suppl_dataset_path):
+    def __init__(self, base_dataset, suppl_dataset_path, p: float=0.8, max_pasted_objects: int=3):
         """
         Args:
             dataset (BaseDataset): The base dataset to apply transformations to.
             suppl_dataset_path (Path | str): Path to the directory containing the supplementary dataset.
                                              This contains images as well as masks used to cut out the objects.
+            p (float): Probability that an object is pasted onto an image
+            max_pasted_objects (int): Maximum number of objects that are pasted onto an image
         """
         self.dataset = base_dataset
         self.imgsz = base_dataset.imgsz
         self.batch_size = base_dataset.batch_size
+        self.p = p
+        self.max_pasted_objects = max_pasted_objects
         self.batch_idx = 0
         self.suppl_dataset = self.init_suppl_dataset(suppl_dataset_path)
         self.labels = self.dataset.labels
@@ -256,10 +260,19 @@ class CopyPasteDataset:
             (dict): A dictionary containing the transformed item data.
         """
         labels = deepcopy(self.dataset[index])
+        
+        # empty original labels, we need to get rid of them
+        labels.update({
+            'cls': torch.tensor([[-1]]),
+            'batch_idx': torch.tensor([-1]),
+            'bboxes': torch.tensor([[-1, -1, -1, -1]]),
+            })
 
-        _, obj_id, suppl_img, suppl_mask = self._select_object(self.suppl_dataset)
+        for _ in range(self.max_pasted_objects):
+            if random.uniform(0, 1) < self.p:
+                _, obj_id, suppl_img, suppl_mask = self._select_object(self.suppl_dataset)
+                labels = self.copy_paste(labels, suppl_img, suppl_mask, obj_id, self.batch_idx)
 
-        labels = self.copy_paste(labels, suppl_img, suppl_mask, obj_id, self.batch_idx)
         self.batch_idx += 1
         self.batch_idx %= self.batch_size
         
