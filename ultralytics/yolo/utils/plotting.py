@@ -358,8 +358,8 @@ def plot_images(images,
 
             if len(bboxes):
                 boxes = xywh2xyxy(bboxes[idx, :4]).T
-                labels = bboxes.shape[1] == 4  # labels if no conf column
-                conf = None if labels else bboxes[idx, 4]  # check for confidence presence (label vs pred)
+                labels = bboxes.shape[2] == 4  # labels if no conf column       # FIXME using 2 instead of 1 feels dirty
+                conf = None if labels else bboxes[idx, 4]   # check for confidence presence (label vs pred)
 
                 if boxes.shape[1]:
                     if boxes.max() <= 1.01:  # if normalized with tolerance 0.01
