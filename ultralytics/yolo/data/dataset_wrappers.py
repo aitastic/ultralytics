@@ -203,7 +203,7 @@ class CopyPasteDataset:
         base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
         labels['img'] = torch.tensor(base_img).permute(2, 0, 1)
             
-        self._vis(base_img)
+        self._vis(labels)
         
         return labels
 
