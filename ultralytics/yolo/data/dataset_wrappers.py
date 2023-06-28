@@ -246,6 +246,10 @@ class CopyPasteDataset:
 
         # Iterate over each item in the batch
         for item in batch:
+            # Skip images without labels
+            if item['cls'].size(0) == 0:
+                continue
+
             # Append the data to the corresponding lists
             imgs.append(item['img'])
             cls.append(item['cls'])
@@ -263,6 +267,7 @@ class CopyPasteDataset:
         bboxes = pad_sequence(bboxes, batch_first=True, padding_value=-1)
         batch_idx = pad_sequence(batch_idx, batch_first=True, padding_value=-1)
     
+        # Return the batched data
         result = {
             'img': imgs,
             'cls': cls,
