@@ -134,10 +134,6 @@ class CopyPasteDataset:
             cv2.waitKey()
 
     def copy_paste(self, labels, suppl_img_path, suppl_mask_path, suppl_obj_id, index):
-        # skip images without objects
-        if len(labels['batch_idx']) == 0:
-            return labels
-
         # Load images
         suppl_img = cv2.imread(suppl_img_path)
         suppl_mask = cv2.imread(suppl_mask_path, cv2.IMREAD_GRAYSCALE)
@@ -188,7 +184,6 @@ class CopyPasteDataset:
             obj
         )
 
-
         # Calculate YOLO annotations
         obj_class_id = int(suppl_obj_id) - 77        # Just for now to align with expected values
         obj_bbox_center_x = (x2+w2/2) / base_img.shape[1]
@@ -196,35 +191,19 @@ class CopyPasteDataset:
         obj_bbox_w = w2 / base_img.shape[1] 
         obj_bbox_h = h2 / base_img.shape[0]
 
-        # Append to labels
-        labels['cls'] = torch.tensor([[obj_class_id]])
-
-        # Get the current batch size
-        bs = len(labels['img'])
-
-        # Create a new batch_idx array
-        new_batch_idx = torch.arange(bs)
-
-         # Assign the new batch_idx array to labels
-        labels['batch_idx'] = new_batch_idx
-
-        labels['batch_idx'] = torch.tensor([index])
-
         # Create a new bounding box
         new_bbox = torch.tensor([[obj_bbox_center_x, obj_bbox_center_y, obj_bbox_w, obj_bbox_h]])
 
         # Add the new bounding box to the labels
-        labels['bboxes'] = new_bbox
-
-        if False:
+        if labels['bboxes'].shape == (1,1,0):
+            # Create new tensors
+            labels['cls'] = torch.tensor([[obj_class_id]])
+            labels['batch_idx'] = torch.tensor([index])
+            labels['bboxes'] = new_bbox
+        else:
             # Append to labels
             labels['cls'] = torch.cat((labels['cls'], torch.tensor([[obj_class_id]])))
-            labels['batch_idx'] = torch.cat((labels['batch_idx'], torch.tensor([labels['batch_idx'][0]])))    # really?
-
-            # Create a new bounding box
-            new_bbox = torch.tensor([[obj_bbox_center_x, obj_bbox_center_y, obj_bbox_w, obj_bbox_h]])
-
-            # Add the new bounding box to the labels
+            labels['batch_idx'] = torch.cat((labels['batch_idx'], torch.tensor([index])))    # really?
             labels['bboxes'] = torch.cat((labels['bboxes'], new_bbox))
 
         # print(f"{(labels['cls'], labels['batch_idx'], labels['bboxes'])=}")
@@ -236,7 +215,6 @@ class CopyPasteDataset:
         self._vis(labels)
         
         return labels
-
 
     def _select_object(self, dataset):
         """
@@ -290,10 +268,6 @@ class CopyPasteDataset:
 
         # Iterate over each item in the batch
         for item in batch:
-            # Skip images without labels
-            if item['cls'].size(0) == 0:
-                continue
-
             # Append the data to the corresponding lists
             imgs.append(item['img'])
             cls.append(item['cls'])
