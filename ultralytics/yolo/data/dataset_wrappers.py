@@ -128,6 +128,10 @@ class CopyPasteDataset:
             cv2.waitKey()
 
     def copy_paste(self, labels, suppl_img_path, suppl_mask_path, suppl_obj_id):
+        # skip images without objects
+        if len(labels['batch_idx']) == 0:
+            return labels
+
         # Load images
         suppl_img = cv2.imread(suppl_img_path)
         suppl_mask = cv2.imread(suppl_mask_path, cv2.IMREAD_GRAYSCALE)
