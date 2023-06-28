@@ -138,6 +138,7 @@ class CopyPasteDataset:
         suppl_img = cv2.resize(suppl_img, (640, 640))
         suppl_mask = cv2.resize(suppl_mask, (640, 640))
         base_img = labels['img'].permute(1, 2, 0).numpy()
+        base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
 
         h,w = suppl_img.shape[:2]
         
@@ -199,6 +200,7 @@ class CopyPasteDataset:
         # labels['bboxes'] = torch.cat((labels['bboxes'], torch.tensor([[obj_bbox_center_x, obj_bbox_center_y, obj_bbox_w, obj_bbox_h]])))
         labels['batch_idx'] = torch.cat((labels['batch_idx'], torch.tensor([labels['batch_idx'][0]])))    # really?
         # Cast image back to tensor
+        base_img = cv2.cvtColor(base_img, cv2.COLOR_BGR2RGB)
         labels['img'] = torch.tensor(base_img).permute(2, 0, 1)
             
         self._vis(base_img)
