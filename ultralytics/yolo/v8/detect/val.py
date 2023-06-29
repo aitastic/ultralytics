@@ -93,8 +93,12 @@ class DetectionValidator(BaseValidator):
             if self.args.single_cls:
                 pred[:, 5] = 0
             predn = pred.clone()
+            try:
+                ratio_pad = batch['ratio_pad'][si]
+            except KeyError:
+                ratio_pad = None
             ops.scale_boxes(batch['img'][si].shape[1:], predn[:, :4], shape,
-                            ratio_pad=batch['ratio_pad'][si])  # native-space pred
+                            ratio_pad=ratio_pad)  # native-space pred
 
             # Evaluate
             if nl:
