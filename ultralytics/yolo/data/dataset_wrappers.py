@@ -76,7 +76,14 @@ class CopyPasteDataset:
         return objects
 
 
-    def __init__(self, base_dataset, suppl_dataset_path, p: float=0.8, max_pasted_objects: int=3):
+    def __init__(
+        self,
+        base_dataset,
+        suppl_dataset_path: str | Path,
+        split: str,
+        p: float=0.8,
+        max_pasted_objects: int=3
+    ):
         """
         Args:
             dataset (BaseDataset): The base dataset to apply transformations to.
@@ -88,10 +95,11 @@ class CopyPasteDataset:
         self.dataset = base_dataset
         self.imgsz = base_dataset.imgsz
         self.batch_size = base_dataset.batch_size
+        self.split = split
         self.p = p
         self.max_pasted_objects = max_pasted_objects
         self.batch_idx = 0
-        self.suppl_dataset = self.init_suppl_dataset(suppl_dataset_path)
+        self.suppl_dataset = self.init_suppl_dataset(Path(suppl_dataset_path) / split)
         self.labels = self.dataset.labels
         self.im_files = self.dataset.im_files
         self.cache_labels = self.dataset.cache_labels

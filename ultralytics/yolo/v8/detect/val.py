@@ -212,7 +212,7 @@ class DetectionValidator(BaseValidator):
 
         dataset = self.build_dataset(dataset_path, batch=batch_size, mode='val')
         if 'CopyPaste' in self.data.get('type', ''):
-            dataset = CopyPasteDataset(dataset, self.data['supplementary_dataset'])
+            dataset = CopyPasteDataset(dataset, self.data['supplementary_dataset'], split='val')
         dataloader = build_dataloader(dataset, batch_size, self.args.workers, shuffle=False, rank=-1)
         return dataloader
 
