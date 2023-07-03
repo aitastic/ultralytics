@@ -257,7 +257,7 @@ class CopyPasteDataset:
                 width = max(size_factor * self.imgsz, w)
                 height = max(size_factor * self.imgsz, h)
                 transforms.append(
-                        A.RandomCrop(p=chance, width=width, height=height),
+                        A.RandomCrop(p=chance or 0.5, width=width, height=height),
                         )
             if augmentation == 'horizontal_flip':
                 transforms.append(
