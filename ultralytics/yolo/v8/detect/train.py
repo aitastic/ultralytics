@@ -54,11 +54,12 @@ class DetectionTrainer(BaseTrainer):
         if 'CopyPaste' in self.data.get('type', ''):
             with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
                 base_dataset = self.build_dataset(dataset_path, mode, batch_size)
+                augmentations = self.data['augmentations'].update(self.args.copypaste_augmentations)
                 dataset = CopyPasteDataset(
                     base_dataset=base_dataset,
                     suppl_dataset_path=self.data['supplementary_dataset'],
                     split='train',
-                    augmentations=self.data['augmentations'],
+                    augmentations=augmentations,
                 )
         else:
             with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
