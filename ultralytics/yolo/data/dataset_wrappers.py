@@ -254,8 +254,8 @@ class CopyPasteDataset:
             if augmentation == 'random_crop':
                 h, w = labels['img'].shape[:2]
                 size_factor = random.uniform(0.3, 0.9)
-                width = max(int(size_factor * self.imgsz), w)
-                height = max(int(size_factor * self.imgsz), h)
+                width = min(int(size_factor * self.imgsz), w)
+                height = min(int(size_factor * self.imgsz), h)
                 transforms.append(
                         A.RandomCrop(p=chance or 0.5, width=width, height=height),
                         )
