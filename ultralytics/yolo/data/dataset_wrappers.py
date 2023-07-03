@@ -284,9 +284,9 @@ class CopyPasteDataset:
                 transforms.append(
                         A.ISONoise(p=chance or 0.7)
                         )
-            if augmentation == 'jpeg_compression':
+            if augmentation == 'image_compression':
                 transforms.append(
-                        A.JpegCompression(p=chance or 0.5)
+                        A.ImageCompression(p=chance or 0.5)
                         )
 
 
