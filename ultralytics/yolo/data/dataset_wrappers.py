@@ -353,8 +353,6 @@ class CopyPasteDataset:
         if self.augmentations:
             labels = self.augment(labels)
 
-        self._vis(labels, debug_view=True)
-
         self.batch_idx += 1
         self.batch_idx %= self.batch_size
         
