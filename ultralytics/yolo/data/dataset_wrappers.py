@@ -252,9 +252,12 @@ class CopyPasteDataset:
         transforms = []
         for augmentation, chance in self.augmentations.items():
             if augmentation == 'random_crop':
-                # TODO randomize size
+                h, w = labels['img'].shape[:2]
+                size_factor = random.uniform(0.3,1.)
+                width = max(size_factor * self.imgsz, w)
+                height = max(size_factor * self.imgsz, h)
                 transforms.append(
-                        A.RandomCrop(p=chance, width=450, height=450),
+                        A.RandomCrop(p=chance, width=width, height=height),
                         )
             if augmentation == 'horizontal_flip':
                 transforms.append(
