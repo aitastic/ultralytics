@@ -324,6 +324,9 @@ class CopyPasteDataset:
         labels['bboxes'] = torch.tensor(transformed['bboxes'])
         labels['cls'] = torch.stack(transformed['class_labels'])
 
+        # Strip away batch indices for classes that got lost during augmentation
+        labels['batch_idx'] = labels['batch_idx'][:len(labels['cls'])]
+
         return labels
 
     def __getitem__(self, index):
