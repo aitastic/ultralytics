@@ -58,7 +58,7 @@ class DetectionTrainer(BaseTrainer):
                 dataset = CopyPasteDataset(
                     base_dataset=base_dataset,
                     suppl_dataset_path=self.data['supplementary_dataset'],
-                    split='train',
+                    split=mode,
                     augmentations=self.data['augmentations'],
                 )
         else:
