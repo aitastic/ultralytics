@@ -213,7 +213,7 @@ class CopyPasteDataset:
         new_bbox = torch.tensor([[obj_bbox_center_x, obj_bbox_center_y, obj_bbox_w, obj_bbox_h]])
 
         # Add the new bounding box to the labels
-        if labels['bboxes'].shape == (1,1,0) or torch.equal(labels['bboxes'], torch.tensor([[-1, -1, -1, -1]])):
+        if 'bboxes' not in labels:
             # Create new tensors
             labels['cls'] = torch.tensor([[obj_class_id]])
             labels['batch_idx'] = torch.tensor([index])
@@ -245,10 +245,6 @@ class CopyPasteDataset:
         
 
     def augment(self, labels: dict):
-        if torch.equal(labels['bboxes'], torch.tensor([[-1, -1, -1, -1]])):
-            # skip if no objects in image
-            return labels
-
         transforms = []
         for augmentation, chance in self.augmentations.items():
             if augmentation == 'random_crop':
@@ -309,22 +305,17 @@ class CopyPasteDataset:
         img = self.convert_tensor_to_cv(labels['img'])
         transformed = transforms(
             image=img,
-            bboxes=labels['bboxes'],
-            class_labels=labels['cls']
+            bboxes=labels.get('bboxes', []),
+            class_labels=labels.get('cls', []),
         )
-        if not transformed['class_labels']:
-            # reset to empty
-            labels.update({
-                'cls': torch.tensor([[-1]]),
-                'batch_idx': torch.tensor([-1]),
-                'bboxes': torch.tensor([[-1, -1, -1, -1]]),
-                })
-            return labels
 
-        labels['cls'] = torch.stack(transformed['class_labels'])
 
         labels['img'] = self.convert_cv_to_tensor(transformed['image'])
-        labels['bboxes'] = torch.tensor(transformed['bboxes'])
+        if 'bboxes' in labels or not transformed['class_labels']:
+            # don't update anything but image if there are no objects 
+            return labels
+
+        labels['bboxes'] = torch.tensor(transformed['bboxes']).float()
         labels['cls'] = torch.stack(transformed['class_labels'])
 
         # Strip away batch indices for classes that got lost during augmentation
@@ -345,11 +336,8 @@ class CopyPasteDataset:
         labels = deepcopy(self.dataset[index])
         
         # empty original labels, we need to get rid of them
-        labels.update({
-            'cls': torch.tensor([[-1]]),
-            'batch_idx': torch.tensor([self.batch_idx]),
-            'bboxes': torch.tensor([[-1, -1, -1, -1]]),
-            })
+        for key in ['cls', 'bboxes', 'batch_idx']:
+            labels.pop(key)
 
         for _ in range(self.max_pasted_objects):
             if random.uniform(0, 1) < self.p:
@@ -378,12 +366,13 @@ class CopyPasteDataset:
         for item in batch:
             # Append the data to the corresponding lists
             imgs.append(item['img'])
-            cls.append(item['cls'])
-            bboxes.append(item['bboxes'])
-            batch_idx.append(item['batch_idx'])
             im_files.append(item['im_file'])
             ori_shapes.append(item['ori_shape'])
             resized_shapes.append(item['resized_shape'])
+            if 'cls' in item:
+                cls.append(item['cls'])
+                bboxes.append(item['bboxes'])
+                batch_idx.append(item['batch_idx'])
 
         # Stack the images into a single tensor
         imgs = torch.stack(imgs)
