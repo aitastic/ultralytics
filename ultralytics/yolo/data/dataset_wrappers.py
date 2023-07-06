@@ -34,7 +34,7 @@ class CopyPasteDataset:
         Builds a dataset for copy-pasting from the given path.
         The directory should contain the images and masks in the format 
         Object_ID/$NR_{img,mask}.png
-        
+
         dataset_path
          |
          +- Chair_1
@@ -54,7 +54,7 @@ class CopyPasteDataset:
          +- Car_3
 
         or
-        
+
         {class_name}_{class_id}_{nr}_{'mask'|'rgb'}.png
         # TODO decide which one
 
@@ -70,8 +70,8 @@ class CopyPasteDataset:
             if not class_name in objects:
                 objects[class_name] = {}
             objects[class_name].update(
-                class_id=class_id,
-            )
+                    class_id=class_id,
+                    )
             if not 'paths' in objects[class_name]:
                 objects[class_name]['paths'] = []
             objects[class_name]['paths'].append(img_path)
@@ -79,14 +79,14 @@ class CopyPasteDataset:
 
 
     def __init__(
-        self,
-        base_dataset,
-        suppl_dataset_path: str | Path,
-        split: Literal['train', 'val', 'test'],
-        augmentations: dict,
-        p: float=0.6,
-        max_pasted_objects: int=3
-    ):
+            self,
+            base_dataset,
+            suppl_dataset_path: str | Path,
+            split: Literal['train', 'val', 'test'],
+            augmentations: dict,
+            p: float=0.6,
+            max_pasted_objects: int=3
+            ):
         """
         Args:
             dataset (BaseDataset): The base dataset to apply transformations to.
@@ -149,7 +149,16 @@ class CopyPasteDataset:
             cv2.imshow('debug', img)
             cv2.waitKey()
 
-    def copy_paste(self, labels, suppl_img_path, suppl_mask_path, suppl_obj_id, index):
+    def copy_paste(
+            self,
+            labels: dict,
+            suppl_img_path: str | Path,
+            suppl_mask_path: str | Path,
+            suppl_obj_id: int,
+            index: int,
+            overlap_threshold: float = 0.5
+            ):
+
         # Load images
         suppl_img = cv2.imread(suppl_img_path)
         suppl_mask = cv2.imread(suppl_mask_path, cv2.IMREAD_GRAYSCALE)
@@ -162,45 +171,62 @@ class CopyPasteDataset:
         base_img = self.convert_tensor_to_cv(labels['img'])
 
         h,w = suppl_img.shape[:2]
-        
+
         # Convert the mask image to binary
         _, binary_mask = cv2.threshold(suppl_mask, 45, 255, cv2.THRESH_BINARY)
-        
+
         # Ensure the single-channel mask is of type uint8
         binary_mask = binary_mask.astype(np.uint8)
 
         # Find the bounding box of the object
         x, y, w, h = cv2.boundingRect(binary_mask)
-        
+
         # Extract the object
         obj = cv2.bitwise_and(suppl_img, suppl_img, mask=binary_mask)
-        
+
         # Cut out the object and its mask
         obj = obj[y:y+h, x:x+w]
         binary_mask= binary_mask[y:y+h, x:x+w]
-        
-        # Select a random position in the second image
-        x2 = max(0, np.random.randint(-w + 1, base_img.shape[1]))
-        y2 = max(0, np.random.randint(-h + 1, base_img.shape[0]))
-        
+
+        # Initialize object mask
+        segmentation_mask = np.zeros_like(base_img[:,:, 0], dtype=np.uint8)
+
+        # Initialize occupancy mask if it doesn't exist
+        occupancy_mask = labels.get('occupancy_mask', segmentation_mask) 
+
+        while True:
+            # Select a random position in the second image
+            x2 = max(0, np.random.randint(-w + 1, base_img.shape[1]))
+            y2 = max(0, np.random.randint(-h + 1, base_img.shape[0]))
+
+            # Check if the selected area is too occupied
+            if np.mean(occupancy_mask[y2:y2+h, x2:x2+w]) < overlap_threshold:
+                break
+
+        # Update the occupancy mask
+        w2 = min(w, occupancy_mask.shape[1] - x2)
+        h2 = min(h, occupancy_mask.shape[0] - y2)
+        occupancy_mask[y2:y2+h, x2:x2+w] = binary_mask[:h2, :w2]
+        segmentation_mask[y2:y2+h, x2:x2+w] = binary_mask[:h2, :w2]
+
         # Calculate the width and height of the part of the object that fits within the second image
         w2 = min(w, base_img.shape[1] - x2)
         h2 = min(h, base_img.shape[0] - y2)
-        
+
         # Adjust the object and its mask to fit within the second image
         obj = obj[:h2, :w2]
         binary_mask = binary_mask[:h2, :w2]
 
         # Paste the object onto the second image using the mask
         base_img[y2:y2+h2, x2:x2+w2] = cv2.bitwise_and(
-            base_img[y2:y2+h2, x2:x2+w2],
-            base_img[y2:y2+h2, x2:x2+w2],
-            mask=cv2.bitwise_not(binary_mask)
-        )
+                base_img[y2:y2+h2, x2:x2+w2],
+                base_img[y2:y2+h2, x2:x2+w2],
+                mask=cv2.bitwise_not(binary_mask)
+                )
         base_img[y2:y2+h2, x2:x2+w2] = cv2.bitwise_or(
-            base_img[y2:y2+h2, x2:x2+w2],
-            obj
-        )
+                base_img[y2:y2+h2, x2:x2+w2],
+                obj
+                )
 
         # Calculate YOLO annotations
         obj_class_id = int(suppl_obj_id) - 77        # Just for now to align with expected values
@@ -218,19 +244,22 @@ class CopyPasteDataset:
             labels['cls'] = torch.tensor([[obj_class_id]])
             labels['batch_idx'] = torch.tensor([index])
             labels['bboxes'] = new_bbox
+            labels['masks'] = [segmentation_mask]
         else:
             # Append to labels
             labels['cls'] = torch.cat((labels['cls'], torch.tensor([[obj_class_id]])))
-            labels['batch_idx'] = torch.cat((labels['batch_idx'], torch.tensor([index])))    # really?
+            labels['batch_idx'] = torch.cat((labels['batch_idx'], torch.tensor([index])))
             labels['bboxes'] = torch.cat((labels['bboxes'], new_bbox))
-
-        # print(f"{(labels['cls'], labels['batch_idx'], labels['bboxes'])=}")
+            labels['masks'].append(segmentation_mask.copy())
 
         # Cast image back to tensor
         labels['img'] = self.convert_cv_to_tensor(base_img)
-            
+
+        # Store occupancy_mask
+        labels['occupancy_mask'] = occupancy_mask
+
         self._vis(labels)
-        
+
         return labels
 
     def _select_object(self, dataset):
@@ -242,9 +271,8 @@ class CopyPasteDataset:
         img = random.sample(sorted(dataset[obj]['paths']), k=1)[0]
         mask = img.replace('rgb', 'mask')
         return obj, obj_id, img, mask
-        
 
-    def augment(self, labels: dict):
+    def augment(self, labels: dict, min_visible_pixels: int = 2048):
         transforms = []
         for augmentation, chance in self.augmentations.items():
             if augmentation == 'random_crop':
@@ -295,31 +323,54 @@ class CopyPasteDataset:
                 )
 
         transforms = A.Compose(
-            transforms,
-            bbox_params=A.BboxParams(
-                format='yolo',
-                min_visibility=0.1,
-                label_fields=['class_labels'],
-            )
-        )
+                transforms,
+                bbox_params=A.BboxParams(
+                    format='yolo',
+                    min_visibility=0.1,
+                    label_fields=['class_labels'],
+                    ),
+                )
+
+        # Convert image to cv format
         img = self.convert_tensor_to_cv(labels['img'])
+
+        # Apply augmentations
         transformed = transforms(
-            image=img,
-            bboxes=labels.get('bboxes', []),
-            class_labels=labels.get('cls', []),
-        )
+                image=img,
+                bboxes=labels.get('bboxes', []),
+                class_labels=labels.get('cls', []),
+                masks=labels.get('masks', None),
+                )
 
-
+        # Convert image back to tensor
         labels['img'] = self.convert_cv_to_tensor(transformed['image'])
-        if 'bboxes' not in labels or not transformed['class_labels']:
-            # don't update anything but image if there are no objects 
+
+        if 'masks' not in labels:
             return labels
 
-        labels['bboxes'] = torch.tensor(transformed['bboxes']).float()
-        labels['cls'] = torch.stack(transformed['class_labels'])
+        # Filter out those objects that have few visible pixels
+        instances = [
+                (bbox, class_label)
+                for bbox, class_label, mask in zip(
+                    transformed['bboxes'],
+                    transformed['class_labels'],
+                    transformed['masks']
+                    )
+                if np.count_nonzero(mask) > min_visible_pixels
+                ]
+
+        bboxes = [inst[0] for inst in instances]
+        class_labels = [inst[1] for inst in instances]
+
+        # don't update anything but image if there are no objects 
+        if 'bboxes' not in labels or not bboxes:
+            return labels
+
+        labels['bboxes'] = torch.tensor(bboxes).float()
+        labels['cls'] = torch.stack(class_labels)
 
         # Strip away batch indices for classes that got lost during augmentation
-        labels['batch_idx'] = labels['batch_idx'][:len(labels['cls'])]
+        labels['batch_idx'] = labels['batch_idx'][:len(class_labels)]
 
         return labels
 
@@ -334,7 +385,7 @@ class CopyPasteDataset:
             (dict): A dictionary containing the transformed item data.
         """
         labels = deepcopy(self.dataset[index])
-        
+
         # empty original labels, we need to get rid of them
         for key in ['cls', 'bboxes', 'batch_idx']:
             labels.pop(key)
@@ -349,7 +400,7 @@ class CopyPasteDataset:
 
         self.batch_idx += 1
         self.batch_idx %= self.batch_size
-        
+
         return labels
 
     def collate_fn(self, batch):
@@ -381,17 +432,17 @@ class CopyPasteDataset:
         cls = pad_sequence(cls, batch_first=True, padding_value=-1)
         bboxes = pad_sequence(bboxes, batch_first=True, padding_value=-1)
         batch_idx = pad_sequence(batch_idx, batch_first=True, padding_value=-1)
-    
+
         # Return the batched data
         result = {
-            'img': imgs,
-            'cls': cls,
-            'bboxes': bboxes,
-            'batch_idx': batch_idx,
-            'im_file': im_files,
-            'ori_shape': ori_shapes,
-            'resized_shape': resized_shapes,
-        }
+                'img': imgs,
+                'cls': cls,
+                'bboxes': bboxes,
+                'batch_idx': batch_idx,
+                'im_file': im_files,
+                'ori_shape': ori_shapes,
+                'resized_shape': resized_shapes,
+                }
         return result
 
 
