@@ -125,7 +125,7 @@ class CopyPasteDataset:
         return img
 
     def _vis(self, labels, debug_view=False):
-        if debug_view:
+        if debug_view and 'bboxes' in labels:
             # Load image, transpose to cv2 format, reorder color channels and normalize
             img = self.convert_tensor_to_cv(labels['img'])
             for bbox, class_id in zip(labels['bboxes'], labels['cls']):
