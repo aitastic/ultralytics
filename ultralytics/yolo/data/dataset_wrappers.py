@@ -311,7 +311,7 @@ class CopyPasteDataset:
 
 
         labels['img'] = self.convert_cv_to_tensor(transformed['image'])
-        if 'bboxes' in labels or not transformed['class_labels']:
+        if 'bboxes' not in labels or not transformed['class_labels']:
             # don't update anything but image if there are no objects 
             return labels
 
