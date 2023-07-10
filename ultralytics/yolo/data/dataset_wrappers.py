@@ -194,7 +194,7 @@ class CopyPasteDataset:
         # Initialize occupancy mask if it doesn't exist
         occupancy_mask = labels.get('occupancy_mask', segmentation_mask) 
 
-        while True:
+        for _ in range(512):
             # Select a random position in the second image
             x2 = max(0, np.random.randint(-w + 1, base_img.shape[1]))
             y2 = max(0, np.random.randint(-h + 1, base_img.shape[0]))
@@ -202,6 +202,10 @@ class CopyPasteDataset:
             # Check if the selected area is too occupied
             if np.mean(occupancy_mask[y2:y2+h, x2:x2+w]) < overlap_threshold:
                 break
+        else:
+            # Could not find a suitable free spot
+            # Returning without adding object
+            return labels
 
         # Update the occupancy mask
         w2 = min(w, occupancy_mask.shape[1] - x2)
