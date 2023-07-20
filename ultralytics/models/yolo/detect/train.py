@@ -3,7 +3,7 @@ from copy import copy
 
 import numpy as np
 
-from ultralytics.data import build_dataloader, build_yolo_dataset
+from ultralytics.data import build_dataloader, build_yolo_dataset, build_suppl_dataset, CopyPasteDataset
 from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import DetectionModel
@@ -27,16 +27,28 @@ class DetectionTrainer(BaseTrainer):
         gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
         return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=False, stride=gs)
 
+    def build_sup_dataset(self, img_path, mode='train', batch=None):
+        """Build YOLO Dataset
+
+        Args:
+            img_path (str): Path to the folder containing images.
+            mode (str): `train` mode or `val` mode, users are able to customize different augmentations for each mode.
+            batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
+        """
+        gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
+        return build_suppl_dataset(self.args, img_path, batch, self.data, mode=mode, rect=False, stride=gs)
+
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode='train'):
         """Construct and return dataloader."""
         assert mode in ['train', 'val']
         if 'CopyPaste' in self.data.get('type', ''):
             with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
                 base_dataset = self.build_dataset(dataset_path, mode, batch_size)
+                supplementary_dataset = self.build_sup_dataset(self.data['supplementary_dataset'], mode, batch_size)
                 self.data['augmentations'].update(self.args.copypaste_augmentations)
                 dataset = CopyPasteDataset(
                     base_dataset=base_dataset,
-                    suppl_dataset_path=self.data['supplementary_dataset'],
+                    suppl_dataset=supplementary_dataset,
                     split=mode,
                     augmentations=self.data['augmentations'],
                 )
