@@ -15,21 +15,17 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision
 
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, RANK, __version__
-from ultralytics.utils.checks import check_requirements, check_version
+from ultralytics.utils.checks import check_version
 
 try:
     import thop
 except ImportError:
     thop = None
 
-TORCHVISION_0_10 = check_version(torchvision.__version__, '0.10.0')
 TORCH_1_9 = check_version(torch.__version__, '1.9.0')
-TORCH_1_11 = check_version(torch.__version__, '1.11.0')
-TORCH_1_12 = check_version(torch.__version__, '1.12.0')
-TORCH_2_0 = check_version(torch.__version__, minimum='2.0')
+TORCH_2_0 = check_version(torch.__version__, '2.0.0')
 
 
 @contextmanager
@@ -55,9 +51,12 @@ def smart_inference_mode():
 
 def get_cpu_info():
     """Return a string with system CPU information, i.e. 'Apple M2'."""
-    check_requirements('py-cpuinfo')
-    import cpuinfo  # noqa
-    return cpuinfo.get_cpu_info()['brand_raw'].replace('(R)', '').replace('CPU ', '').replace('@ ', '')
+    import cpuinfo  # pip install py-cpuinfo
+
+    k = 'brand_raw', 'hardware_raw', 'arch_string_raw'  # info keys sorted by preference (not all keys always available)
+    info = cpuinfo.get_cpu_info()  # info dict
+    string = info.get(k[0] if k[0] in info else k[1] if k[1] in info else k[2], 'unknown')
+    return string.replace('(R)', '').replace('CPU ', '').replace('@ ', '')
 
 
 def select_device(device='', batch=0, newline=False, verbose=True):
@@ -454,7 +453,7 @@ def profile(input, ops, n=10, device=None):
                     y = m(x)
                     t[1] = time_sync()
                     try:
-                        _ = (sum(yi.sum() for yi in y) if isinstance(y, list) else y).sum().backward()
+                        (sum(yi.sum() for yi in y) if isinstance(y, list) else y).sum().backward()
                         t[2] = time_sync()
                     except Exception:  # no backward method
                         # print(e)  # for debug

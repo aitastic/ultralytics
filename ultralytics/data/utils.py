@@ -1,6 +1,5 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-import contextlib
 import hashlib
 import json
 import os
@@ -24,12 +23,10 @@ from ultralytics.utils.checks import check_file, check_font, is_ascii
 from ultralytics.utils.downloads import download, safe_download, unzip_file
 from ultralytics.utils.ops import segments2boxes
 
-HELP_URL = 'See https://docs.ultralytics.com/yolov5/tutorials/train_custom_data'
+HELP_URL = 'See https://docs.ultralytics.com/datasets/detect for dataset formatting guidance.'
 IMG_FORMATS = 'bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp', 'pfm'  # image suffixes
 VID_FORMATS = 'asf', 'avi', 'gif', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ts', 'wmv', 'webm'  # video suffixes
 PIN_MEMORY = str(os.getenv('PIN_MEMORY', True)).lower() == 'true'  # global pin_memory for dataloaders
-IMAGENET_MEAN = 0.485, 0.456, 0.406  # RGB mean
-IMAGENET_STD = 0.229, 0.224, 0.225  # RGB standard deviation
 
 # Get orientation exif tag
 for orientation in ExifTags.TAGS.keys():
@@ -51,13 +48,14 @@ def get_hash(paths):
     return h.hexdigest()  # return hash
 
 
-def exif_size(img):
+def exif_size(img: Image.Image):
     """Returns exif-corrected PIL size."""
     s = img.size  # (width, height)
-    with contextlib.suppress(Exception):
-        rotation = dict(img._getexif().items())[orientation]
+    exif = img.getexif()
+    if exif:
+        rotation = exif.get(274, None)  # the key for the orientation tag in the EXIF data is 274 (in decimal)
         if rotation in [6, 8]:  # rotation 270 or 90
-            s = (s[1], s[0])
+            s = s[1], s[0]
     return s
 
 
@@ -192,7 +190,21 @@ def polygons2masks_overlap(imgsz, segments, downsample_ratio=1):
 
 
 def check_det_dataset(dataset, autodownload=True):
-    """Download, check and/or unzip dataset if not found locally."""
+    """
+    Download, verify, and/or unzip a dataset if not found locally.
+
+    This function checks the availability of a specified dataset, and if not found, it has the option to download and
+    unzip the dataset. It then reads and parses the accompanying YAML data, ensuring key requirements are met and also
+    resolves paths related to the dataset.
+
+    Args:
+        dataset (str): Path to the dataset or dataset descriptor (like a YAML file).
+        autodownload (bool, optional): Whether to automatically download the dataset if not found. Defaults to True.
+
+    Returns:
+        (dict): Parsed dataset information and paths.
+    """
+
     data = check_file(dataset)
 
     # Download (optional)
@@ -209,8 +221,12 @@ def check_det_dataset(dataset, autodownload=True):
     # Checks
     for k in 'train', 'val':
         if k not in data:
-            raise SyntaxError(
-                emojis(f"{dataset} '{k}:' key missing ❌.\n'train' and 'val' are required in all data YAMLs."))
+            if k == 'val' and 'validation' in data:
+                LOGGER.info("WARNING ⚠️ renaming data YAML 'validation' key to 'val' to match YOLO format.")
+                data['val'] = data.pop('validation')  # replace 'validation' key with 'val' key
+            else:
+                raise SyntaxError(
+                    emojis(f"{dataset} '{k}:' key missing ❌.\n'train' and 'val' are required in all data YAMLs."))
     if 'names' not in data and 'nc' not in data:
         raise SyntaxError(emojis(f"{dataset} key missing ❌.\n either 'names' or 'nc' are required in all data YAMLs."))
     if 'names' in data and 'nc' in data and len(data['names']) != data['nc']:
@@ -244,21 +260,21 @@ def check_det_dataset(dataset, autodownload=True):
         val = [Path(x).resolve() for x in (val if isinstance(val, list) else [val])]  # val path
         if not all(x.exists() for x in val):
             name = clean_url(dataset)  # dataset name with URL auth stripped
-            m = f"\nDataset '{name}' images not found ⚠️, missing paths %s" % [str(x) for x in val if not x.exists()]
+            m = f"\nDataset '{name}' images not found ⚠️, missing path '{[x for x in val if not x.exists()][0]}'"
             if s and autodownload:
                 LOGGER.warning(m)
             else:
                 m += f"\nNote dataset download directory is '{DATASETS_DIR}'. You can update this in '{SETTINGS_YAML}'"
                 raise FileNotFoundError(m)
             t = time.time()
+            r = None  # success
             if s.startswith('http') and s.endswith('.zip'):  # URL
                 safe_download(url=s, dir=DATASETS_DIR, delete=True)
-                r = None  # success
             elif s.startswith('bash '):  # bash script
                 LOGGER.info(f'Running {s} ...')
                 r = os.system(s)
             else:  # python script
-                r = exec(s, {'yaml': data})  # return None
+                exec(s, {'yaml': data})
             dt = f'({round(time.time() - t, 1)}s)'
             s = f"success ✅ {dt}, saved to {colorstr('bold', DATASETS_DIR)}" if r in (0, None) else f'failure {dt} ❌'
             LOGGER.info(f'Dataset download {s}\n')
@@ -285,9 +301,6 @@ def check_cls_dataset(dataset: str, split=''):
             - 'test' (Path): The directory path containing the test set of the dataset.
             - 'nc' (int): The number of classes in the dataset.
             - 'names' (dict): A dictionary of class names in the dataset.
-
-    Raises:
-        FileNotFoundError: If the specified dataset is not found and cannot be downloaded.
     """
 
     dataset = Path(dataset)
@@ -303,7 +316,8 @@ def check_cls_dataset(dataset: str, split=''):
         s = f"Dataset download success ✅ ({time.time() - t:.1f}s), saved to {colorstr('bold', data_dir)}\n"
         LOGGER.info(s)
     train_set = data_dir / 'train'
-    val_set = data_dir / 'val' if (data_dir / 'val').exists() else None  # data/test or data/val
+    val_set = data_dir / 'val' if (data_dir / 'val').exists() else data_dir / 'validation' if (
+        data_dir / 'validation').exists() else None  # data/test or data/val
     test_set = data_dir / 'test' if (data_dir / 'test').exists() else None  # data/val or data/test
     if split == 'val' and not val_set:
         LOGGER.info("WARNING ⚠️ Dataset 'split=val' not found, using 'split=test' instead.")
@@ -313,10 +327,21 @@ def check_cls_dataset(dataset: str, split=''):
     nc = len([x for x in (data_dir / 'train').glob('*') if x.is_dir()])  # number of classes
     names = [x.name for x in (data_dir / 'train').iterdir() if x.is_dir()]  # class names list
     names = dict(enumerate(sorted(names)))
+
+    # Print to console
+    for k, v in {'train': train_set, 'val': val_set, 'test': test_set}.items():
+        if v is None:
+            LOGGER.info(colorstr(k) + f': {v}')
+        else:
+            files = [path for path in v.rglob('*.*') if path.suffix[1:].lower() in IMG_FORMATS]
+            nf = len(files)  # number of files
+            nd = len({file.parent for file in files})  # number of directories
+            LOGGER.info(colorstr(k) + f': {v}... found {nf} images in {nd} classes ✅ ')  # keep trailing space
+
     return {'train': train_set, 'val': val_set or test_set, 'test': test_set or val_set, 'nc': nc, 'names': names}
 
 
-class HUBDatasetStats():
+class HUBDatasetStats:
     """
     A class for generating HUB dataset JSON and `-hub` dataset directory.
 
@@ -325,19 +350,23 @@ class HUBDatasetStats():
         task (str): Dataset task. Options are 'detect', 'segment', 'pose', 'classify'. Default is 'detect'.
         autodownload (bool): Attempt to download dataset if not found locally. Default is False.
 
-    Usage
+    Example:
+        ```python
         from ultralytics.data.utils import HUBDatasetStats
-        stats = HUBDatasetStats('/Users/glennjocher/Downloads/coco8.zip', task='detect')  # detect dataset
-        stats = HUBDatasetStats('/Users/glennjocher/Downloads/coco8-seg.zip', task='segment')  # segment dataset
-        stats = HUBDatasetStats('/Users/glennjocher/Downloads/coco8-pose.zip', task='pose')  # pose dataset
+
+        stats = HUBDatasetStats('path/to/coco8.zip', task='detect')  # detect dataset
+        stats = HUBDatasetStats('path/to/coco8-seg.zip', task='segment')  # segment dataset
+        stats = HUBDatasetStats('path/to/coco8-pose.zip', task='pose')  # pose dataset
         stats.get_json(save=False)
         stats.process_images()
+        ```
     """
 
     def __init__(self, path='coco128.yaml', task='detect', autodownload=False):
         """Initialize class."""
+        path = Path(path).resolve()
         LOGGER.info(f'Starting HUB dataset checks for {path}....')
-        zipped, data_dir, yaml_path = self._unzip(Path(path))
+        zipped, data_dir, yaml_path = self._unzip(path)
         try:
             # data = yaml_load(check_yaml(yaml_path))  # data dict
             data = check_det_dataset(yaml_path, autodownload)  # data dict
@@ -357,11 +386,10 @@ class HUBDatasetStats():
     def _find_yaml(dir):
         """Return data.yaml file."""
         files = list(dir.glob('*.yaml')) or list(dir.rglob('*.yaml'))  # try root level first and then recursive
-        assert files, f'No *.yaml file found in {dir}'
+        assert files, f"No *.yaml file found in '{dir.resolve()}'"
         if len(files) > 1:
             files = [f for f in files if f.stem == dir.stem]  # prefer *.yaml files that match dir name
-            assert files, f'Multiple *.yaml files found in {dir}, only 1 *.yaml file allowed'
-        assert len(files) == 1, f'Multiple *.yaml files found: {files}, only 1 *.yaml file allowed in {dir}'
+        assert len(files) == 1, f"Expected 1 *.yaml file in '{dir.resolve()}', but found {len(files)}.\n{files}"
         return files[0]
 
     def _unzip(self, path):
@@ -455,12 +483,16 @@ def compress_one_image(f, f_new=None, max_dim=1920, quality=50):
         max_dim (int, optional): The maximum dimension (width or height) of the output image. Default is 1920 pixels.
         quality (int, optional): The image compression quality as a percentage. Default is 50%.
 
-    Usage:
+    Example:
+        ```python
         from pathlib import Path
         from ultralytics.data.utils import compress_one_image
-        for f in Path('/Users/glennjocher/Downloads/dataset').rglob('*.jpg'):
+
+        for f in Path('path/to/dataset').rglob('*.jpg'):
             compress_one_image(f)
+        ```
     """
+
     try:  # use PIL
         im = Image.open(f)
         r = max_dim / max(im.height, im.width)  # ratio
@@ -484,9 +516,12 @@ def delete_dsstore(path):
     Args:
         path (str, optional): The directory path where the ".DS_store" files should be deleted.
 
-    Usage:
+    Example:
+        ```python
         from ultralytics.data.utils import delete_dsstore
-        delete_dsstore('/Users/glennjocher/Downloads/dataset')
+
+        delete_dsstore('path/to/dir')
+        ```
 
     Note:
         ".DS_store" files are created by the Apple operating system and contain metadata about folders and files. They
@@ -501,17 +536,18 @@ def delete_dsstore(path):
 
 def zip_directory(dir, use_zipfile_library=True):
     """
-    Zips a directory and saves the archive to the specified output path.
+    Zips a directory and saves the archive to the specified output path. Equivalent to 'zip -r coco8.zip coco8/'
 
     Args:
         dir (str): The path to the directory to be zipped.
         use_zipfile_library (bool): Whether to use zipfile library or shutil for zipping.
 
-    Usage:
+    Example:
+        ```python
         from ultralytics.data.utils import zip_directory
-        zip_directory('/Users/glennjocher/Downloads/playground')
 
-        zip -r coco8-pose.zip coco8-pose
+        zip_directory('/path/to/dir')
+        ```
     """
     delete_dsstore(dir)
     if use_zipfile_library:
@@ -525,18 +561,21 @@ def zip_directory(dir, use_zipfile_library=True):
         shutil.make_archive(dir, 'zip', dir)
 
 
-def autosplit(path=DATASETS_DIR / 'coco128/images', weights=(0.9, 0.1, 0.0), annotated_only=False):
+def autosplit(path=DATASETS_DIR / 'coco8/images', weights=(0.9, 0.1, 0.0), annotated_only=False):
     """
     Autosplit a dataset into train/val/test splits and save the resulting splits into autosplit_*.txt files.
 
     Args:
-        path (Path, optional): Path to images directory. Defaults to DATASETS_DIR / 'coco128/images'.
+        path (Path, optional): Path to images directory. Defaults to DATASETS_DIR / 'coco8/images'.
         weights (list | tuple, optional): Train, validation, and test split fractions. Defaults to (0.9, 0.1, 0.0).
         annotated_only (bool, optional): If True, only images with an associated txt file are used. Defaults to False.
 
-    Usage:
-        from utils.dataloaders import autosplit
+    Example:
+        ```python
+        from ultralytics.data.utils import autosplit
+
         autosplit()
+        ```
     """
 
     path = Path(path)  # images dir

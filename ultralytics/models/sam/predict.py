@@ -28,6 +28,8 @@ class Predictor(BasePredictor):
         # Args for set_image
         self.im = None
         self.features = None
+        # Args for set_prompts
+        self.prompts = {}
         # Args for segment everything
         self.segment_all = False
 
@@ -92,6 +94,10 @@ class Predictor(BasePredictor):
                 of masks and H=W=256. These low resolution logits can be passed to
                 a subsequent iteration as mask input.
         """
+        # Get prompts from self.prompts first
+        bboxes = self.prompts.pop('bboxes', bboxes)
+        points = self.prompts.pop('points', points)
+        masks = self.prompts.pop('masks', masks)
         if all(i is None for i in [bboxes, points, masks]):
             return self.generate(im, *args, **kwargs)
         return self.prompt_inference(im, bboxes, points, labels, masks, multimask_output)
@@ -288,7 +294,7 @@ class Predictor(BasePredictor):
 
     def setup_model(self, model, verbose=True):
         """Set up YOLO model with specified thresholds and device."""
-        device = select_device(self.args.device)
+        device = select_device(self.args.device, verbose=verbose)
         if model is None:
             model = build_sam(self.args.model)
         model.eval()
@@ -304,7 +310,7 @@ class Predictor(BasePredictor):
         self.done_warmup = True
 
     def postprocess(self, preds, img, orig_imgs):
-        """Postprocesses inference output predictions to create detection masks for objects."""
+        """Post-processes inference output predictions to create detection masks for objects."""
         # (N, 1, H, W), (N, 1)
         pred_masks, pred_scores = preds[:2]
         pred_bboxes = preds[2] if self.segment_all else None
@@ -347,6 +353,10 @@ class Predictor(BasePredictor):
             self.features = self.model.image_encoder(im)
             self.im = im
             break
+
+    def set_prompts(self, prompts):
+        """Set prompts in advance."""
+        self.prompts = prompts
 
     def reset_image(self):
         self.im = None
