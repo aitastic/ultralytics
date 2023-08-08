@@ -1,5 +1,8 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
 import random
 
+import collections
+from collections import defaultdict
 from copy import deepcopy
 from typing import Literal
 
@@ -133,11 +136,17 @@ class CopyPasteDataset:
         # Resize to be inline with the base images
         suppl_img = cv2.resize(suppl_img, (self.imgsz, self.imgsz))
 
+        # FIXME during validation this is required. I'm sceptical that's correct.
+        base_img = cv2.resize(base_img, (self.imgsz, self.imgsz))
+
         # Get image shape
         h,w = suppl_img.shape[:2]
 
         # Convert the mask image to binary
         suppl_mask = suppl_labels['masks'][0].numpy() * 255
+
+        # Ensure mask is same size as image
+        suppl_mask = cv2.resize(suppl_mask, (self.imgsz, self.imgsz))
 
         # Convert to single channel if necessary
         if suppl_mask.shape[-1] == 3:
@@ -181,6 +190,7 @@ class CopyPasteDataset:
         # Update the occupancy mask
         w2 = min(w, occupancy_mask.shape[1] - x2)
         h2 = min(h, occupancy_mask.shape[0] - y2)
+
         occupancy_mask[y2:y2+h, x2:x2+w] = binary_mask[:h2, :w2]
         segmentation_mask[y2:y2+h, x2:x2+w] = binary_mask[:h2, :w2]
 
@@ -210,6 +220,11 @@ class CopyPasteDataset:
         obj_bbox_w = w2 / base_img.shape[1] 
         obj_bbox_h = h2 / base_img.shape[0]
 
+        # Apparently sometimes the resulting bboxes are 0-width, which causes issues.
+        # If that happens, just skip it
+        if obj_bbox_w < 0.01 or obj_bbox_h < 0.01:
+            return labels
+
         # Create a new bounding box
         new_bbox = torch.tensor([[obj_bbox_center_x, obj_bbox_center_y, obj_bbox_w, obj_bbox_h]])
 
@@ -238,52 +253,79 @@ class CopyPasteDataset:
         return labels
 
     def augment(self, labels: dict, augmentations: dict, min_visible_pixels: int = 8096):
-        transforms = []
+        transform_dict = defaultdict(list)
         for augmentation, chance in augmentations.items():
             if augmentation == 'random_crop':
                 w, h = labels['img'].shape[1:]
                 size_factor = random.uniform(0.3, 0.9)
                 width = min(int(size_factor * self.imgsz), w)
                 height = min(int(size_factor * self.imgsz), h)
-                transforms.append(
-                        A.RandomCrop(p=chance or 0.5, width=width, height=height),
+                transform_dict['crop'].append(
+                        A.RandomCrop(
+                            p=chance or 0.5,
+                            width=width,
+                            height=height
+                            ),
                         )
             if augmentation == 'advanced_blur':
-                transforms.append(
-                        A.AdvancedBlur(p=chance or 0.5),
+                transform_dict['blur'].append(
+                        A.AdvancedBlur(p=chance or 0.2),
                         )
             if augmentation == 'horizontal_flip':
-                transforms.append(
+                transform_dict['geometric'].append(
                         A.HorizontalFlip(p=chance or 0.5),
                         )
             if augmentation == 'random_brightness_contrast':
-                transforms.append( A.RandomBrightnessContrast(p=chance or 0.2),
+                transform_dict['photometric'].append( 
+                        A.RandomBrightnessContrast(p=chance or 0.2),
                         )
             if augmentation == 'channel_shuffle':
-                transforms.append(
-                        A.ChannelShuffle(p=chance or 0.6)
+                transform_dict['photometric'].append(
+                        A.ChannelShuffle(p=chance or 0.4)
                         )
             if augmentation == 'color_jitter':
-                transforms.append(
-                        A.ColorJitter(p=chance or 0.7)
+                transform_dict['photometric'].append(
+                        A.ColorJitter(
+                            p=chance or 0.4,
+                            brightness=0.3,
+                            contrast=0.3,
+                            saturation=0.3,
+                            )
                         )
             if augmentation == 'hsv_shift':
-                transforms.append(
-                        A.HueSaturationValue(p=chance or 0.7)
+                transform_dict['photometric'].append(
+                        A.HueSaturationValue(
+                            p=chance or 0.4,
+                            hue_shift_limit=(-50, 50),
+                            sat_shift_limit=(-50, 50),
+                            val_shift_limit=(-50, 50),
+                            )
                         )
             if augmentation == 'gauss_noise':
-                transforms.append(
+                transform_dict['noise'].append(
                         A.GaussNoise(p=chance or 0.7)
                         )
             if augmentation == 'iso_noise':
-                transforms.append(
+                transform_dict['noise'].append(
                         A.ISONoise(p=chance or 0.7)
                         )
             if augmentation == 'image_compression':
-                transforms.append(
+                transform_dict['noise'].append(
                         A.ImageCompression(p=chance or 0.5)
                         )
 
+        transforms = []
+        # Limit transforms for performance reasons
+        for category in transform_dict.keys():
+            if category != 'photometric':
+                # Only choose one transform per category
+                transforms.extend(random.sample(transform_dict[category], k=1))
+            else:
+                # We want to combine the photometric transforms, so choose multiples
+                transforms.extend(random.sample(
+                    transform_dict[category],
+                    k=min(3, len(transform_dict[category]))
+                ))
 
         # always pad if needed
         transforms.append(
@@ -308,33 +350,28 @@ class CopyPasteDataset:
             masks = [self.convert_tensor_to_cv(masks)]
 
 
-        # FIXME why do we need this suddenly?
+        # BBox width/height > 1. indicates unnormalized coordinates, values <=0 indicate broken boxes.
         bboxes = []
         for bbox in labels.get('bboxes', []):
             boxlen = len(bboxes)
             if np.any([v >= 1. for v in bbox.numpy()]):
                 bboxes.append(bbox / self.imgsz)
-            if np.any([v < 0. for v in bbox.numpy()]):
-                print(f'augment: bboxes < 0: {bboxes=}')
-                bboxes.append(bbox.numpy().clip(0.001, 1.))
+            if np.any([v <= 0.0 for v in bbox.numpy()]):
+                print(f'augment: bboxes <= 0.: {bbox=}')
+                print(f'{labels["im_file"]=}')
+                bboxes.append(torch.clamp(bbox, 0.001, 1.))
             # check if a box has already been added this iteration
             if boxlen == len(bboxes):
                 bboxes.append(bbox)
         labels['bboxes'] = torch.stack(bboxes)
 
         # Apply augmentations
-        print(f"{(img.shape, labels['bboxes'][0].shape, masks[0].shape)=}")
-        try:
-            transformed = transforms(
-                    image=img,
-                    bboxes=labels.get('bboxes', []),
-                    class_labels=labels.get('cls', []),
-                    masks=masks,
-                    )
-        except Exception as e:
-            print(e)
-            print(f'{labels}')
-            raise e
+        transformed = transforms(
+                image=img,
+                bboxes=labels.get('bboxes', []),
+                class_labels=labels.get('cls', []),
+                masks=masks,
+                )
 
         # Convert image back to tensor
         labels['img'] = self.convert_cv_to_tensor(transformed['image'])
@@ -395,6 +432,13 @@ class CopyPasteDataset:
                     suppl_labels = self.augment(suppl_labels, augmentations=self.augmentations['object_level'])
                 # Combine labels via CopyPaste
                 labels = self.copy_paste(labels, suppl_labels, self.batch_idx)
+            else:
+                # This is required for validation, as images here are potentially of different shapes
+                img = self.convert_tensor_to_cv(labels['img'])
+                labels['img'] = self.convert_cv_to_tensor(cv2.resize(img, (self.imgsz, self.imgsz)))
+                if 'masks' in labels:
+                    mask = labels['masks'][-1]
+                    labels['masks'][-1] = cv2.resize(mask, (self.imgsz, self.imgsz))
         
         if self.augmentations and 'masks' in labels:
             labels = self.augment(labels, augmentations=self.augmentations['image_level'])
@@ -425,8 +469,13 @@ class CopyPasteDataset:
                 cls.append(item['cls'])
                 bboxes.append(item['bboxes'])
                 batch_idx.append(item['batch_idx'])
-        # Stack the images into a single tensor
-        imgs = torch.stack(imgs)
+        try:
+            # Stack the images into a single tensor
+            imgs = torch.stack(imgs)
+        except Exception as e:
+            print(f'{imgs=}')
+            for img, file in zip(imgs, im_files):
+                print(f'{file=}: {img.shape=}')
 
         # Convert the lists of labels and bounding boxes to padded tensors
         cls = pad_sequence(cls, batch_first=True, padding_value=-1)

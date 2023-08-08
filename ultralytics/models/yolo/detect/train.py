@@ -4,13 +4,14 @@ from copy import copy
 
 import numpy as np
 
-from ultralytics.data import build_dataloader, build_yolo_dataset, build_suppl_dataset, CopyPasteDataset
+from ultralytics.data import build_dataloader, build_yolo_dataset, build_suppl_dataset
 from ultralytics.engine.trainer import BaseTrainer
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import DetectionModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER, RANK
 from ultralytics.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.utils.torch_utils import de_parallel, torch_distributed_zero_first
+from ultralytics.data import CopyPasteDataset
 
 
 class DetectionTrainer(BaseTrainer):
