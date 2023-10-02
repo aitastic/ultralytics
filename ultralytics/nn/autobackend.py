@@ -18,7 +18,6 @@ from PIL import Image
 from ultralytics.utils import ARM64, LINUX, LOGGER, ROOT, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_version, check_yaml
 from ultralytics.utils.downloads import attempt_download_asset, is_url
-from ultralytics.utils.ops import xywh2xyxy
 
 
 def check_class_names(names):
@@ -40,6 +39,7 @@ def check_class_names(names):
 
 class AutoBackend(nn.Module):
 
+    @torch.no_grad()
     def __init__(self,
                  weights='yolov8n.pt',
                  device=torch.device('cpu'),
@@ -310,6 +310,11 @@ class AutoBackend(nn.Module):
             names = self._apply_default_class_names(data)
         names = check_class_names(names)
 
+        # Disable gradients
+        if pt:
+            for p in model.parameters():
+                p.requires_grad = False
+
         self.__dict__.update(locals())  # assign all variables to self
 
     def forward(self, im, augment=False, visualize=False):
@@ -363,9 +368,13 @@ class AutoBackend(nn.Module):
             # im = im.resize((192, 320), Image.BILINEAR)
             y = self.model.predict({'image': im_pil})  # coordinates are xywh normalized
             if 'confidence' in y:
-                box = xywh2xyxy(y['coordinates'] * [[w, h, w, h]])  # xyxy pixels
-                conf, cls = y['confidence'].max(1), y['confidence'].argmax(1).astype(np.float)
-                y = np.concatenate((box, conf.reshape(-1, 1), cls.reshape(-1, 1)), 1)
+                raise TypeError('Ultralytics only supports inference of non-pipelined CoreML models exported with '
+                                f"'nms=False', but 'model={w}' has an NMS pipeline created by an 'nms=True' export.")
+                # TODO: CoreML NMS inference handling
+                # from ultralytics.utils.ops import xywh2xyxy
+                # box = xywh2xyxy(y['coordinates'] * [[w, h, w, h]])  # xyxy pixels
+                # conf, cls = y['confidence'].max(1), y['confidence'].argmax(1).astype(np.float32)
+                # y = np.concatenate((box, conf.reshape(-1, 1), cls.reshape(-1, 1)), 1)
             elif len(y) == 1:  # classification model
                 y = list(y.values())
             elif len(y) == 2:  # segmentation model
@@ -414,13 +423,10 @@ class AutoBackend(nn.Module):
                         scale, zero_point = output['quantization']
                         x = (x.astype(np.float32) - zero_point) * scale  # re-scale
                     if x.ndim > 2:  # if task is not classification
-                        # Denormalize xywh with input image size
+                        # Denormalize xywh by image size. See https://github.com/ultralytics/ultralytics/pull/1695
                         # xywh are normalized in TFLite/EdgeTPU to mitigate quantization error of integer models
-                        # See this PR for details: https://github.com/ultralytics/ultralytics/pull/1695
-                        x[:, 0] *= w
-                        x[:, 1] *= h
-                        x[:, 2] *= w
-                        x[:, 3] *= h
+                        x[:, [0, 2]] *= w
+                        x[:, [1, 3]] *= h
                     y.append(x)
             # TF segment fixes: export is reversed vs ONNX export and protos are transposed
             if len(y) == 2:  # segment with (det, proto) output order reversed

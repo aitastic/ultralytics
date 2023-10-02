@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from ultralytics.data.augment import LetterBox
-from ultralytics.utils import LOGGER, SimpleClass, deprecation_warn, ops
+from ultralytics.utils import LOGGER, SimpleClass, ops
 from ultralytics.utils.plotting import Annotator, colors, save_one_box
 
 
@@ -101,19 +101,18 @@ class Results(SimpleClass):
         self.names = names
         self.path = path
         self.save_dir = None
-        self._keys = ('boxes', 'masks', 'probs', 'keypoints')
+        self._keys = 'boxes', 'masks', 'probs', 'keypoints'
 
     def __getitem__(self, idx):
         """Return a Results object for the specified index."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k)[idx])
-        return r
+        return self._apply('__getitem__', idx)
 
     def __len__(self):
         """Return the number of detections in the Results object."""
-        for k in self.keys:
-            return len(getattr(self, k))
+        for k in self._keys:
+            v = getattr(self, k)
+            if v is not None:
+                return len(v)
 
     def update(self, boxes=None, masks=None, probs=None):
         """Update the boxes, masks, and probs attributes of the Results object."""
@@ -125,59 +124,49 @@ class Results(SimpleClass):
         if probs is not None:
             self.probs = probs
 
+    def _apply(self, fn, *args, **kwargs):
+        r = self.new()
+        for k in self._keys:
+            v = getattr(self, k)
+            if v is not None:
+                setattr(r, k, getattr(v, fn)(*args, **kwargs))
+        return r
+
     def cpu(self):
         """Return a copy of the Results object with all tensors on CPU memory."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).cpu())
-        return r
+        return self._apply('cpu')
 
     def numpy(self):
         """Return a copy of the Results object with all tensors as numpy arrays."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).numpy())
-        return r
+        return self._apply('numpy')
 
     def cuda(self):
         """Return a copy of the Results object with all tensors on GPU memory."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).cuda())
-        return r
+        return self._apply('cuda')
 
     def to(self, *args, **kwargs):
         """Return a copy of the Results object with tensors on the specified device and dtype."""
-        r = self.new()
-        for k in self.keys:
-            setattr(r, k, getattr(self, k).to(*args, **kwargs))
-        return r
+        return self._apply('to', *args, **kwargs)
 
     def new(self):
         """Return a new Results object with the same image, path, and names."""
         return Results(orig_img=self.orig_img, path=self.path, names=self.names)
 
-    @property
-    def keys(self):
-        """Return a list of non-empty attribute names."""
-        return [k for k in self._keys if getattr(self, k) is not None]
-
     def plot(
-            self,
-            conf=True,
-            line_width=None,
-            font_size=None,
-            font='Arial.ttf',
-            pil=False,
-            img=None,
-            im_gpu=None,
-            kpt_radius=5,
-            kpt_line=True,
-            labels=True,
-            boxes=True,
-            masks=True,
-            probs=True,
-            **kwargs  # deprecated args TODO: remove support in 8.2
+        self,
+        conf=True,
+        line_width=None,
+        font_size=None,
+        font='Arial.ttf',
+        pil=False,
+        img=None,
+        im_gpu=None,
+        kpt_radius=5,
+        kpt_line=True,
+        labels=True,
+        boxes=True,
+        masks=True,
+        probs=True,
     ):
         """
         Plots the detection results on an input RGB image. Accepts a numpy array (cv2) or a PIL Image.
@@ -215,18 +204,7 @@ class Results(SimpleClass):
             ```
         """
         if img is None and isinstance(self.orig_img, torch.Tensor):
-            img = (self.orig_img[0].detach().permute(1, 2, 0).cpu().contiguous() * 255).to(torch.uint8).numpy()
-
-        # Deprecation warn TODO: remove in 8.2
-        if 'show_conf' in kwargs:
-            deprecation_warn('show_conf', 'conf')
-            conf = kwargs['show_conf']
-            assert isinstance(conf, bool), '`show_conf` should be of boolean type, i.e, show_conf=True/False'
-
-        if 'line_thickness' in kwargs:
-            deprecation_warn('line_thickness', 'line_width')
-            line_width = kwargs['line_thickness']
-            assert isinstance(line_width, int), '`line_width` should be of int type, i.e, line_width=3'
+            img = (self.orig_img[0].detach().permute(1, 2, 0).contiguous() * 255).to(torch.uint8).cpu().numpy()
 
         names = self.names
         pred_boxes, show_boxes = self.boxes, boxes
@@ -333,14 +311,10 @@ class Results(SimpleClass):
         if self.probs is not None:
             LOGGER.warning('WARNING ⚠️ Classify task do not support `save_crop`.')
             return
-        if isinstance(save_dir, str):
-            save_dir = Path(save_dir)
-        if isinstance(file_name, str):
-            file_name = Path(file_name)
         for d in self.boxes:
             save_one_box(d.xyxy,
                          self.orig_img.copy(),
-                         file=save_dir / self.names[int(d.cls)] / f'{file_name.stem}.jpg',
+                         file=Path(save_dir) / self.names[int(d.cls)] / f'{Path(file_name).stem}.jpg',
                          BGR=True)
 
     def tojson(self, normalize=False):
@@ -456,19 +430,12 @@ class Boxes(BaseTensor):
         xywh[..., [1, 3]] /= self.orig_shape[0]
         return xywh
 
-    @property
-    def boxes(self):
-        """Return the raw bboxes tensor (deprecated)."""
-        LOGGER.warning("WARNING ⚠️ 'Boxes.boxes' is deprecated. Use 'Boxes.data' instead.")
-        return self.data
-
 
 class Masks(BaseTensor):
     """
     A class for storing and manipulating detection masks.
 
     Attributes:
-        segments (list): Deprecated property for segments (normalized).
         xy (list): A list of segments in pixel coordinates.
         xyn (list): A list of normalized segments.
 
@@ -487,15 +454,6 @@ class Masks(BaseTensor):
 
     @property
     @lru_cache(maxsize=1)
-    def segments(self):
-        """Return segments (normalized). Deprecated; use xyn property instead."""
-        LOGGER.warning(
-            "WARNING ⚠️ 'Masks.segments' is deprecated. Use 'Masks.xyn' for segments (normalized) and 'Masks.xy' for segments (pixels) instead."
-        )
-        return self.xyn
-
-    @property
-    @lru_cache(maxsize=1)
     def xyn(self):
         """Return normalized segments."""
         return [
@@ -509,12 +467,6 @@ class Masks(BaseTensor):
         return [
             ops.scale_coords(self.data.shape[1:], x, self.orig_shape, normalize=False)
             for x in ops.masks2segments(self.data)]
-
-    @property
-    def masks(self):
-        """Return the raw masks tensor. Deprecated; use data attribute instead."""
-        LOGGER.warning("WARNING ⚠️ 'Masks.masks' is deprecated. Use 'Masks.data' instead.")
-        return self.data
 
 
 class Keypoints(BaseTensor):

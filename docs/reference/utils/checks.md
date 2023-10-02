@@ -10,6 +10,14 @@ keywords: Ultralytics, utility checks, ASCII, check_version, pip_update, check_p
     Full source code for this file is available at [https://github.com/ultralytics/ultralytics/blob/main/ultralytics/utils/checks.py](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/utils/checks.py). Help us fix any issues you see by submitting a [Pull Request](https://docs.ultralytics.com/help/contributing/) 🛠️. Thank you 🙏!
 
 ---
+## ::: ultralytics.utils.checks.parse_requirements
+<br><br>
+
+---
+## ::: ultralytics.utils.checks.parse_version
+<br><br>
+
+---
 ## ::: ultralytics.utils.checks.is_ascii
 <br><br>
 
@@ -70,6 +78,10 @@ keywords: Ultralytics, utility checks, ASCII, check_version, pip_update, check_p
 <br><br>
 
 ---
+## ::: ultralytics.utils.checks.collect_system_info
+<br><br>
+
+---
 ## ::: ultralytics.utils.checks.check_amp
 <br><br>
 
@@ -79,4 +91,12 @@ keywords: Ultralytics, utility checks, ASCII, check_version, pip_update, check_p
 
 ---
 ## ::: ultralytics.utils.checks.print_args
+<br><br>
+
+---
+## ::: ultralytics.utils.checks.cuda_device_count
+<br><br>
+
+---
+## ::: ultralytics.utils.checks.cuda_is_available
 <br><br>

@@ -65,12 +65,7 @@ class Compose:
 
     def __repr__(self):
         """Return string representation of object."""
-        format_string = f'{self.__class__.__name__}('
-        for t in self.transforms:
-            format_string += '\n'
-            format_string += f'    {t}'
-        format_string += '\n)'
-        return format_string
+        return f"{self.__class__.__name__}({', '.join([f'{t}' for t in self.transforms])})"
 
 
 class BaseMixTransform:
@@ -402,7 +397,7 @@ class RandomPerspective:
             keypoints (ndarray): keypoints, [N, 17, 3].
             M (ndarray): affine matrix.
 
-        Return:
+        Returns:
             new_keypoints (ndarray): keypoints after affine, [N, 17, 3].
         """
         n, nkpt = keypoints.shape[:2]
@@ -483,7 +478,7 @@ class RandomHSV:
         self.vgain = vgain
 
     def __call__(self, labels):
-        """Applies random horizontal or vertical flip to an image with a given probability."""
+        """Applies image HSV augmentation"""
         img = labels['img']
         if self.hgain or self.sgain or self.vgain:
             r = np.random.uniform(-1, 1, 3) * [self.hgain, self.sgain, self.vgain] + 1  # random gains
@@ -501,6 +496,7 @@ class RandomHSV:
 
 
 class RandomFlip:
+    """Applies random horizontal or vertical flip to an image with a given probability."""
 
     def __init__(self, p=0.5, direction='horizontal', flip_idx=None) -> None:
         assert direction in ['horizontal', 'vertical'], f'Support direction `horizontal` or `vertical`, got {direction}'
@@ -575,8 +571,6 @@ class LetterBox:
         if self.center:
             dw /= 2  # divide padding into 2 sides
             dh /= 2
-        if labels.get('ratio_pad'):
-            labels['ratio_pad'] = (labels['ratio_pad'], (dw, dh))  # for evaluation
 
         if shape[::-1] != new_unpad:  # resize
             img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
@@ -584,6 +578,8 @@ class LetterBox:
         left, right = int(round(dw - 0.1)) if self.center else 0, int(round(dw + 0.1))
         img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT,
                                  value=(114, 114, 114))  # add border
+        if labels.get('ratio_pad'):
+            labels['ratio_pad'] = (labels['ratio_pad'], (left, top))  # for evaluation
 
         if len(labels):
             labels = self._update_labels(labels, ratio, dw, dh)
@@ -634,7 +630,7 @@ class CopyPaste:
 
             result = cv2.flip(im, 1)  # augment segments (flip left-right)
             i = cv2.flip(im_new, 1).astype(bool)
-            im[i] = result[i]  # cv2.imwrite('debug.jpg', im)  # debug
+            im[i] = result[i]
 
         labels['img'] = im
         labels['cls'] = cls
@@ -643,7 +639,9 @@ class CopyPaste:
 
 
 class Albumentations:
-    """YOLOv8 Albumentations class (optional, only used if package is installed)"""
+    """Albumentations transformations. Optional, uninstall package to disable.
+    Applies Blur, Median Blur, convert to grayscale, Contrast Limited Adaptive Histogram Equalization,
+    random change of brightness and contrast, RandomGamma and lowering of image quality by compression."""
 
     def __init__(self, p=1.0):
         """Initialize the transform object for YOLO bbox formatted params."""
@@ -793,14 +791,14 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
 
 
 # Classification augmentations -----------------------------------------------------------------------------------------
-def classify_transforms(size=224, mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0)):  # IMAGENET_MEAN, IMAGENET_STD
-    # Transforms to apply if albumentations not installed
+def classify_transforms(size=224, rect=False, mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0)):  # IMAGENET_MEAN, IMAGENET_STD
+    """Transforms to apply if albumentations not installed."""
     if not isinstance(size, int):
         raise TypeError(f'classify_transforms() size {size} must be integer, not (list, tuple)')
+    transforms = [ClassifyLetterBox(size, auto=True) if rect else CenterCrop(size), ToTensor()]
     if any(mean) or any(std):
-        return T.Compose([CenterCrop(size), ToTensor(), T.Normalize(mean, std, inplace=True)])
-    else:
-        return T.Compose([CenterCrop(size), ToTensor()])
+        transforms.append(T.Normalize(mean, std, inplace=True))
+    return T.Compose(transforms)
 
 
 def hsv2colorjitter(h, s, v):
@@ -866,9 +864,9 @@ class ClassifyLetterBox:
         imh, imw = im.shape[:2]
         r = min(self.h / imh, self.w / imw)  # ratio of new/old
         h, w = round(imh * r), round(imw * r)  # resized image
-        hs, ws = (math.ceil(x / self.stride) * self.stride for x in (h, w)) if self.auto else self.h, self.w
+        hs, ws = (math.ceil(x / self.stride) * self.stride for x in (h, w)) if self.auto else (self.h, self.w)
         top, left = round((hs - h) / 2 - 0.1), round((ws - w) / 2 - 0.1)
-        im_out = np.full((self.h, self.w, 3), 114, dtype=im.dtype)
+        im_out = np.full((hs, ws, 3), 114, dtype=im.dtype)
         im_out[top:top + h, left:left + w] = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
         return im_out
 
